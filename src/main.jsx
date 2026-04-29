@@ -27,6 +27,23 @@ function Login({ onLogin }) {
     const username = String(fd.get("username") || "").trim();
     const password = String(fd.get("password") || "").trim();
 
+    // Admin login ثابت لضمان دخولك دائمًا
+    if (username === "BOUSHAHRI" && password === "BOUSHAHRI") {
+      const adminUser = {
+        id: "admin",
+        username: "BOUSHAHRI",
+        role: "admin",
+        clinic_id: null,
+        clinic_name: "BOUSHAHRI CLINIC",
+        doctor_name: "Admin",
+      };
+
+      localStorage.setItem("boushahri_user", JSON.stringify(adminUser));
+      onLogin(adminUser);
+      return;
+    }
+
+    // Login للعيادات من Supabase
     const { data, error: dbError } = await supabase
       .from("users_app")
       .select("*")
@@ -41,6 +58,7 @@ function Login({ onLogin }) {
 
     if (data && data.length > 0) {
       const user = data[0];
+
       localStorage.setItem("boushahri_user", JSON.stringify(user));
       onLogin(user);
     } else {
