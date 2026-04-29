@@ -9,6 +9,13 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
   const [supplierAccounts, setSupplierAccounts] = useState([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState([]);
 
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState("");
+  const [selectedSupplier, setSelectedSupplier] = useState("");
+  const [reportMonth, setReportMonth] = useState("");
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+
   const [productForm, setProductForm] = useState({
     name: "",
     category: "",
@@ -45,58 +52,197 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
   }, []);
 
   async function loadAll() {
-    loadProducts();
-    loadRequests();
-    loadRequestItems();
-    loadUsers();
-    loadSuppliers();
-    loadSupplierAccounts();
-    loadPurchaseInvoices();
+    await Promise.all([
+      loadProducts(),
+      loadRequests(),
+      loadRequestItems(),
+      loadUsers(),
+      loadSuppliers(),
+      loadSupplierAccounts(),
+      loadPurchaseInvoices(),
+    ]);
   }
 
   async function loadProducts() {
-    const { data } = await supabase.from("products").select("*").order("name");
+    const { data, error } = await supabase.from("products").select("*").order("name");
+    if (error) return console.log("products error", error);
     setProducts(data || []);
   }
 
   async function loadRequests() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("clinic_requests")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("date", { ascending: false });
+
+    if (error) return console.log("requests error", error);
     setRequests(data || []);
   }
 
   async function loadRequestItems() {
-    const { data } = await supabase.from("request_items").select("*");
+    const { data, error } = await supabase.from("request_items").select("*");
+    if (error) return console.log("request_items error", error);
     setRequestItems(data || []);
   }
 
   async function loadUsers() {
-    const { data } = await supabase.from("users_app").select("*").order("username");
+    const { data, error } = await supabase.from("users_app").select("*").order("username");
+    if (error) return console.log("users error", error);
     setUsers(data || []);
   }
 
   async function loadSuppliers() {
-    const { data } = await supabase.from("suppliers").select("*").order("name");
+    const { data, error } = await supabase.from("suppliers").select("*").order("name");
+    if (error) return console.log("suppliers error", error);
     setSuppliers(data || []);
   }
 
   async function loadSupplierAccounts() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("supplier_accounts")
       .select("*")
       .order("transaction_date", { ascending: false });
+
+    if (error) return console.log("supplier_accounts error", error);
     setSupplierAccounts(data || []);
   }
 
   async function loadPurchaseInvoices() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("purchase_invoices")
       .select("*")
       .order("invoice_date", { ascending: false });
+
+    if (error) return console.log("purchase_invoices error", error);
     setPurchaseInvoices(data || []);
   }
+
+  function productById(id) {
+    return products.find((p) => p.id === id);
+  }
+
+  function productPrice(productId) {
+    const p = productById(productId);
+    return Number(p?.sell_price || 0);
+  }
+
+  function requestDate(req) {
+    return req?.date || req?.request_date || "";
+  }
+
+  function formatDate(value) {
+    if (!value) return "";
+    return String(value).slice(0, 10);
+  }
+
+  function requestTotal(requestId) {
+    return requestItems
+      .filter((x) => x.request_id === requestId)
+      .reduce((sum, item) => {
+        return sum + Number(item.qty || 0) * productPrice(item.product_id);
+      }, 0);
+  }
+
+  function requestDetails(requestId) {
+    return requestItems
+      .filter((x) => x.request_id === requestId)
+      .map((item) => {
+        const product = productById(item.product_id);
+        const price = productPrice(item.product_id);
+        const total = Number(item.qty || 0) * price;
+        return `${product?.name || "Product"} × ${item.qty} = ${total.toFixed(3)} KWD`;
+      })
+      .join(" / ");
+  }
+
+  function inDateRange(req) {
+    const d = formatDate(requestDate(req));
+    if (!d) return true;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  }
+
+  const filteredRequests = useMemo(() => {
+    return requests.filter(inDateRange);
+  }, [requests, fromDate, toDate]);
+
+  const productReport = useMemo(() => {
+    if (!selectedProduct) return { qty: 0, value: 0 };
+
+    let qty = 0;
+    let value = 0;
+
+    filteredRequests.forEach((req) => {
+      requestItems
+        .filter((i) => i.request_id === req.id && i.product_id === selectedProduct)
+        .forEach((i) => {
+          qty += Number(i.qty || 0);
+          value += Number(i.qty || 0) * productPrice(i.product_id);
+        });
+    });
+
+    return { qty, value };
+  }, [selectedProduct, filteredRequests, requestItems, products]);
+
+  const supplierReport = useMemo(() => {
+    const accounts = supplierAccounts.filter((a) => a.supplier_id === selectedSupplier);
+
+    const totalInvoices = accounts
+      .filter((a) => a.type === "invoice")
+      .reduce((sum, a) => sum + Number(a.amount || 0), 0);
+
+    const totalPaid = accounts
+      .filter((a) => a.type === "payment")
+      .reduce((sum, a) => sum + Number(a.amount || 0), 0);
+
+    return {
+      totalInvoices,
+      totalPaid,
+      balance: totalInvoices - totalPaid,
+    };
+  }, [selectedSupplier, supplierAccounts]);
+
+  const monthlyReport = useMemo(() => {
+    if (!reportMonth) return { count: 0, total: 0 };
+
+    const list = requests.filter((r) => formatDate(requestDate(r)).startsWith(reportMonth));
+
+    return {
+      count: list.length,
+      total: list.reduce((sum, r) => sum + requestTotal(r.id), 0),
+    };
+  }, [reportMonth, requests, requestItems, products]);
+
+  const annualReport = useMemo(() => {
+    const year = String(reportYear || "");
+    const list = requests.filter((r) => formatDate(requestDate(r)).startsWith(year));
+
+    return {
+      count: list.length,
+      total: list.reduce((sum, r) => sum + requestTotal(r.id), 0),
+    };
+  }, [reportYear, requests, requestItems, products]);
+
+  const reports = useMemo(() => {
+    const totalStockValue = products.reduce(
+      (sum, p) => sum + Number(p.stock || 0) * Number(p.purchase_price || 0),
+      0
+    );
+
+    const approvedRequestsTotal = requests
+      .filter((r) => r.status === "Approved")
+      .reduce((sum, r) => sum + requestTotal(r.id), 0);
+
+    const supplierBalance = suppliers.reduce(
+      (sum, s) => sum + Number(s.balance || 0),
+      0
+    );
+
+    const pendingRequests = requests.filter((r) => r.status === "Pending").length;
+
+    return { totalStockValue, approvedRequestsTotal, supplierBalance, pendingRequests };
+  }, [products, requests, requestItems, suppliers]);
 
   async function addProduct() {
     if (!productForm.name || !productForm.sell_price) {
@@ -158,8 +304,13 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
   async function approveRequest(requestId) {
     const items = requestItems.filter((x) => x.request_id === requestId);
 
+    if (!items.length) {
+      alert("لا يوجد منتجات داخل الطلب");
+      return;
+    }
+
     for (const item of items) {
-      const product = products.find((p) => p.id === item.product_id);
+      const product = productById(item.product_id);
       const currentStock = Number(product?.stock || 0);
       const qty = Number(item.qty || 0);
 
@@ -170,12 +321,14 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
     }
 
     for (const item of items) {
-      const product = products.find((p) => p.id === item.product_id);
+      const product = productById(item.product_id);
       if (!product) continue;
+
+      const newStock = Number(product.stock || 0) - Number(item.qty || 0);
 
       await supabase
         .from("products")
-        .update({ stock: Number(product.stock || 0) - Number(item.qty || 0) })
+        .update({ stock: newStock })
         .eq("id", item.product_id);
     }
 
@@ -189,15 +342,18 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
 
     if (error) return alert(error.message);
 
-    loadAll();
+    await loadAll();
   }
 
   async function rejectRequest(requestId) {
+    const note = prompt("سبب الرفض؟") || "";
+
     const { error } = await supabase
       .from("clinic_requests")
       .update({
         status: "Rejected",
         rejected_at: new Date().toISOString(),
+        admin_note: note,
       })
       .eq("id", requestId);
 
@@ -250,6 +406,7 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
 
     await supabase.from("supplier_accounts").insert({
       supplier_id: invoiceForm.supplier_id,
+      transaction_date: new Date().toISOString().slice(0, 10),
       type: "invoice",
       amount: total,
       notes: `Invoice ${invoiceForm.invoice_no || ""}`,
@@ -258,6 +415,7 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
     if (paid > 0) {
       await supabase.from("supplier_accounts").insert({
         supplier_id: invoiceForm.supplier_id,
+        transaction_date: new Date().toISOString().slice(0, 10),
         type: "payment",
         amount: paid,
         notes: `Payment for invoice ${invoiceForm.invoice_no || ""}`,
@@ -265,6 +423,7 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
     }
 
     const supplier = suppliers.find((s) => s.id === invoiceForm.supplier_id);
+
     await supabase
       .from("suppliers")
       .update({ balance: Number(supplier?.balance || 0) + balance })
@@ -281,39 +440,152 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
     loadAll();
   }
 
-  const reports = useMemo(() => {
-    const totalStockValue = products.reduce(
-      (sum, p) => sum + Number(p.stock || 0) * Number(p.purchase_price || 0),
-      0
-    );
+  function printHtml(title, body) {
+    const win = window.open("", "", "width=900,height=700");
+    win.document.write(`
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial; padding: 25px; color: #111; }
+            h1, h2 { color: #0f4c81; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background: #eef5ff; }
+            .total { margin-top: 20px; font-size: 18px; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          ${body}
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
 
-    const totalSalesRequests = requests
-      .filter((r) => r.status === "Approved")
-      .reduce((sum, r) => sum + Number(r.total || 0), 0);
+  function printRequest(requestId) {
+    const req = requests.find((r) => r.id === requestId);
+    const items = requestItems.filter((i) => i.request_id === requestId);
+    const total = requestTotal(requestId);
 
-    const supplierBalance = suppliers.reduce(
-      (sum, s) => sum + Number(s.balance || 0),
-      0
-    );
-
-    const pendingRequests = requests.filter((r) => r.status === "Pending").length;
-
-    return {
-      totalStockValue,
-      totalSalesRequests,
-      supplierBalance,
-      pendingRequests,
-    };
-  }, [products, requests, suppliers]);
-
-  function requestDetails(requestId) {
-    return requestItems
-      .filter((x) => x.request_id === requestId)
+    const rows = items
       .map((item) => {
-        const product = products.find((p) => p.id === item.product_id);
-        return `${product?.name || "Product"} × ${item.qty}`;
+        const product = productById(item.product_id);
+        const price = productPrice(item.product_id);
+        const lineTotal = Number(item.qty || 0) * price;
+
+        return `
+          <tr>
+            <td>${product?.name || ""}</td>
+            <td>${product?.category || ""}</td>
+            <td>${item.qty}</td>
+            <td>${price.toFixed(3)}</td>
+            <td>${lineTotal.toFixed(3)}</td>
+          </tr>
+        `;
       })
-      .join(" / ");
+      .join("");
+
+    printHtml(
+      "Clinic Request",
+      `
+        <h1>BOUSHAHRI MEDICAL STORE</h1>
+        <h2>Clinic Request</h2>
+        <p><b>Date:</b> ${formatDate(requestDate(req))}</p>
+        <p><b>Status:</b> ${req?.status || ""}</p>
+        <p><b>Clinic ID:</b> ${req?.clinic_id || "N/A"}</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Category</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <div class="total">Grand Total: ${total.toFixed(3)} KWD</div>
+      `
+    );
+  }
+
+  function printRequestsReport() {
+    const rows = filteredRequests
+      .map((r) => `
+        <tr>
+          <td>${formatDate(requestDate(r))}</td>
+          <td>${requestDetails(r.id)}</td>
+          <td>${r.status}</td>
+          <td>${requestTotal(r.id).toFixed(3)} KWD</td>
+        </tr>
+      `)
+      .join("");
+
+    const total = filteredRequests.reduce((sum, r) => sum + requestTotal(r.id), 0);
+
+    printHtml(
+      "Requests Report",
+      `
+        <h1>Requests Report</h1>
+        <p><b>From:</b> ${fromDate || "All"} - <b>To:</b> ${toDate || "All"}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Details</th>
+              <th>Status</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="total">Total: ${total.toFixed(3)} KWD</div>
+      `
+    );
+  }
+
+  function printSupplierStatement() {
+    const supplier = suppliers.find((s) => s.id === selectedSupplier);
+    const accounts = supplierAccounts.filter((a) => a.supplier_id === selectedSupplier);
+
+    const rows = accounts
+      .map((a) => `
+        <tr>
+          <td>${formatDate(a.transaction_date)}</td>
+          <td>${a.type}</td>
+          <td>${Number(a.amount || 0).toFixed(3)}</td>
+          <td>${a.notes || ""}</td>
+        </tr>
+      `)
+      .join("");
+
+    printHtml(
+      "Supplier Statement",
+      `
+        <h1>Supplier Statement</h1>
+        <h2>${supplier?.name || ""}</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="total">Invoices: ${supplierReport.totalInvoices.toFixed(3)} KWD</div>
+        <div class="total">Paid: ${supplierReport.totalPaid.toFixed(3)} KWD</div>
+        <div class="total">Balance: ${supplierReport.balance.toFixed(3)} KWD</div>
+      `
+    );
   }
 
   return (
@@ -324,28 +596,14 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
           <p>Welcome {user?.username}</p>
         </div>
 
-        <button style={styles.logout} onClick={onLogout}>
-          Logout
-        </button>
+        <button style={styles.logout} onClick={onLogout}>Logout</button>
       </div>
 
       <div style={styles.reportGrid}>
-        <div style={styles.reportBox}>
-          <span>Pending Requests</span>
-          <b>{reports.pendingRequests}</b>
-        </div>
-        <div style={styles.reportBox}>
-          <span>Approved Requests Total</span>
-          <b>{reports.totalSalesRequests.toFixed(3)} KWD</b>
-        </div>
-        <div style={styles.reportBox}>
-          <span>Stock Value</span>
-          <b>{reports.totalStockValue.toFixed(3)} KWD</b>
-        </div>
-        <div style={styles.reportBox}>
-          <span>Supplier Balance</span>
-          <b>{reports.supplierBalance.toFixed(3)} KWD</b>
-        </div>
+        <ReportBox title="Pending Requests" value={reports.pendingRequests} />
+        <ReportBox title="Approved Requests Total" value={`${reports.approvedRequestsTotal.toFixed(3)} KWD`} />
+        <ReportBox title="Stock Value" value={`${reports.totalStockValue.toFixed(3)} KWD`} />
+        <ReportBox title="Supplier Balance" value={`${reports.supplierBalance.toFixed(3)} KWD`} />
       </div>
 
       <div style={styles.grid2}>
@@ -384,9 +642,7 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
           <h2>Add Supplier Invoice</h2>
           <select style={styles.input} value={invoiceForm.supplier_id} onChange={(e) => setInvoiceForm({ ...invoiceForm, supplier_id: e.target.value })}>
             <option value="">Select Supplier</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <input style={styles.input} placeholder="Invoice No" value={invoiceForm.invoice_no} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoice_no: e.target.value })} />
           <input style={styles.input} placeholder="Total" value={invoiceForm.total} onChange={(e) => setInvoiceForm({ ...invoiceForm, total: e.target.value })} />
@@ -395,14 +651,56 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
         </section>
       </div>
 
+      <section style={styles.card}>
+        <h2>Reports & Printing</h2>
+
+        <div style={styles.grid4}>
+          <input style={styles.input} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <input style={styles.input} type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <button style={styles.primary} onClick={printRequestsReport}>Print Requests Report</button>
+        </div>
+
+        <div style={styles.grid4}>
+          <select style={styles.input} value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)}>
+            <option value="">Select Product Report</option>
+            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <div style={styles.miniReport}>Qty Used: <b>{productReport.qty}</b></div>
+          <div style={styles.miniReport}>Value: <b>{productReport.value.toFixed(3)} KWD</b></div>
+        </div>
+
+        <div style={styles.grid4}>
+          <input style={styles.input} type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} />
+          <div style={styles.miniReport}>Monthly Requests: <b>{monthlyReport.count}</b></div>
+          <div style={styles.miniReport}>Monthly Total: <b>{monthlyReport.total.toFixed(3)} KWD</b></div>
+        </div>
+
+        <div style={styles.grid4}>
+          <input style={styles.input} type="number" value={reportYear} onChange={(e) => setReportYear(e.target.value)} />
+          <div style={styles.miniReport}>Annual Requests: <b>{annualReport.count}</b></div>
+          <div style={styles.miniReport}>Annual Total: <b>{annualReport.total.toFixed(3)} KWD</b></div>
+        </div>
+
+        <div style={styles.grid4}>
+          <select style={styles.input} value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)}>
+            <option value="">Select Supplier Statement</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <div style={styles.miniReport}>Invoices: <b>{supplierReport.totalInvoices.toFixed(3)}</b></div>
+          <div style={styles.miniReport}>Paid: <b>{supplierReport.totalPaid.toFixed(3)}</b></div>
+          <div style={styles.miniReport}>Balance: <b>{supplierReport.balance.toFixed(3)}</b></div>
+          <button style={styles.primary} onClick={printSupplierStatement} disabled={!selectedSupplier}>Print Supplier Statement</button>
+        </div>
+      </section>
+
       <Table title="Products" headers={["Name", "Category", "Purchase", "Sell", "Stock"]}>
         {products.map((p) => (
           <tr key={p.id}>
-            <td>{p.name}</td>
-            <td>{p.category}</td>
-            <td>{Number(p.purchase_price || 0).toFixed(3)}</td>
-            <td>{Number(p.sell_price || 0).toFixed(3)}</td>
-            <td>{p.stock}</td>
+            <td style={styles.td}>{p.name}</td>
+            <td style={styles.td}>{p.category}</td>
+            <td style={styles.td}>{Number(p.purchase_price || 0).toFixed(3)}</td>
+            <td style={styles.td}>{Number(p.sell_price || 0).toFixed(3)}</td>
+            <td style={styles.td}>{p.stock}</td>
           </tr>
         ))}
       </Table>
@@ -410,23 +708,24 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
       <Table title="Clinic Users" headers={["Username", "Clinic", "Doctor", "Role", "Active"]}>
         {users.map((u) => (
           <tr key={u.id}>
-            <td>{u.username}</td>
-            <td>{u.clinic_name}</td>
-            <td>{u.doctor_name}</td>
-            <td>{u.role}</td>
-            <td>{u.active ? "Yes" : "No"}</td>
+            <td style={styles.td}>{u.username}</td>
+            <td style={styles.td}>{u.clinic_name}</td>
+            <td style={styles.td}>{u.doctor_name}</td>
+            <td style={styles.td}>{u.role}</td>
+            <td style={styles.td}>{u.active ? "Yes" : "No"}</td>
           </tr>
         ))}
       </Table>
 
       <Table title="Clinic Requests" headers={["Date", "Details", "Status", "Total", "Actions"]}>
-        {requests.map((r) => (
+        {filteredRequests.map((r) => (
           <tr key={r.id}>
-            <td>{r.request_date}</td>
-            <td>{requestDetails(r.id)}</td>
-            <td>{r.status}</td>
-            <td>{Number(r.total || 0).toFixed(3)} KWD</td>
-            <td>
+            <td style={styles.td}>{formatDate(requestDate(r))}</td>
+            <td style={styles.td}>{requestDetails(r.id)}</td>
+            <td style={styles.td}>{r.status}</td>
+            <td style={styles.td}>{requestTotal(r.id).toFixed(3)} KWD</td>
+            <td style={styles.td}>
+              <button style={styles.print} onClick={() => printRequest(r.id)}>Print</button>
               {r.status === "Pending" && (
                 <>
                   <button style={styles.approve} onClick={() => approveRequest(r.id)}>Approve</button>
@@ -441,10 +740,10 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
       <Table title="Suppliers" headers={["Name", "Phone", "Email", "Balance"]}>
         {suppliers.map((s) => (
           <tr key={s.id}>
-            <td>{s.name}</td>
-            <td>{s.phone}</td>
-            <td>{s.email}</td>
-            <td>{Number(s.balance || 0).toFixed(3)} KWD</td>
+            <td style={styles.td}>{s.name}</td>
+            <td style={styles.td}>{s.phone}</td>
+            <td style={styles.td}>{s.email}</td>
+            <td style={styles.td}>{Number(s.balance || 0).toFixed(3)} KWD</td>
           </tr>
         ))}
       </Table>
@@ -454,16 +753,25 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
           const supplier = suppliers.find((s) => s.id === inv.supplier_id);
           return (
             <tr key={inv.id}>
-              <td>{inv.invoice_no}</td>
-              <td>{supplier?.name || ""}</td>
-              <td>{Number(inv.total || 0).toFixed(3)}</td>
-              <td>{Number(inv.paid || 0).toFixed(3)}</td>
-              <td>{Number(inv.balance || 0).toFixed(3)}</td>
-              <td>{inv.status}</td>
+              <td style={styles.td}>{inv.invoice_no}</td>
+              <td style={styles.td}>{supplier?.name || ""}</td>
+              <td style={styles.td}>{Number(inv.total || 0).toFixed(3)}</td>
+              <td style={styles.td}>{Number(inv.paid || 0).toFixed(3)}</td>
+              <td style={styles.td}>{Number(inv.balance || 0).toFixed(3)}</td>
+              <td style={styles.td}>{inv.status}</td>
             </tr>
           );
         })}
       </Table>
+    </div>
+  );
+}
+
+function ReportBox({ title, value }) {
+  return (
+    <div style={styles.reportBox}>
+      <span>{title}</span>
+      <b>{value}</b>
     </div>
   );
 }
@@ -474,7 +782,7 @@ function Table({ title, headers, children }) {
       <h2>{title}</h2>
       <table style={styles.table}>
         <thead>
-          <tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr>
+          <tr>{headers.map((h) => <th style={styles.th} key={h}>{h}</th>)}</tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
@@ -485,14 +793,19 @@ function Table({ title, headers, children }) {
 const styles = {
   page: { minHeight: "100vh", background: "#f3f7fb", padding: 30, fontFamily: "Arial" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 25 },
-  logout: { background: "#0f766e", color: "#fff", border: 0, padding: "12px 20px", borderRadius: 10, fontWeight: 700 },
+  logout: { background: "#0f766e", color: "#fff", border: 0, padding: "12px 20px", borderRadius: 10, fontWeight: 700, cursor: "pointer" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 },
+  grid4: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 15 },
   reportGrid: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 15, marginBottom: 20 },
-  reportBox: { background: "#fff", padding: 20, borderRadius: 16, boxShadow: "0 8px 25px rgba(0,0,0,.08)" },
-  card: { background: "#fff", padding: 24, borderRadius: 18, marginBottom: 22, boxShadow: "0 8px 25px rgba(0,0,0,.08)" },
+  reportBox: { background: "#fff", padding: 20, borderRadius: 16, boxShadow: "0 8px 25px rgba(0,0,0,.08)", display: "flex", justifyContent: "space-between" },
+  miniReport: { background: "#eef5ff", padding: 12, borderRadius: 10 },
+  card: { background: "#fff", padding: 24, borderRadius: 18, marginBottom: 22, boxShadow: "0 8px 25px rgba(0,0,0,.08)", overflowX: "auto" },
   input: { width: "100%", padding: 12, marginBottom: 10, borderRadius: 10, border: "1px solid #cbd5e1", boxSizing: "border-box" },
-  primary: { background: "#2563eb", color: "#fff", border: 0, padding: "12px 18px", borderRadius: 10, fontWeight: 700 },
+  primary: { background: "#2563eb", color: "#fff", border: 0, padding: "12px 18px", borderRadius: 10, fontWeight: 700, cursor: "pointer" },
   table: { width: "100%", borderCollapse: "collapse" },
-  approve: { background: "#16a34a", color: "#fff", border: 0, padding: "8px 12px", borderRadius: 8, marginRight: 6 },
-  reject: { background: "#dc2626", color: "#fff", border: 0, padding: "8px 12px", borderRadius: 8 },
+  th: { textAlign: "left", borderBottom: "1px solid #ddd", padding: 10, background: "#f8fafc" },
+  td: { borderBottom: "1px solid #eee", padding: 10, verticalAlign: "top" },
+  print: { background: "#0f4c81", color: "#fff", border: 0, padding: "8px 12px", borderRadius: 8, marginRight: 6, cursor: "pointer" },
+  approve: { background: "#16a34a", color: "#fff", border: 0, padding: "8px 12px", borderRadius: 8, marginRight: 6, cursor: "pointer" },
+  reject: { background: "#dc2626", color: "#fff", border: 0, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
 };
