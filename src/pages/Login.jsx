@@ -1,18 +1,34 @@
 import { useState } from "react";
+import { supabase } from "../supabaseClient";
 
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
-    if (username === "BOUSHAHRI" && password === "BOUSHAHRI") {
-      localStorage.setItem("auth", "true");
-      window.location.reload();
-    } else {
-      alert("Invalid username or password");
+    // 👇 تسجيل دخول من Supabase
+    const { data, error } = await supabase
+      .from("users_app")
+      .select("*")
+      .eq("username", username)
+      .eq("password", password)
+      .single();
+
+    if (error || !data) {
+      alert("❌ Invalid username or password");
+      setLoading(false);
+      return;
     }
+
+    // 👇 حفظ الجلسة
+    localStorage.setItem("auth", "true");
+    localStorage.setItem("user", JSON.stringify(data));
+
+    window.location.reload();
   };
 
   return (
@@ -39,8 +55,8 @@ export default function Login() {
             style={styles.input}
           />
 
-          <button type="submit" style={styles.button}>
-            Login
+          <button type="submit" style={styles.button} disabled={loading}>
+            {loading ? "Loading..." : "Login"}
           </button>
         </form>
       </div>
@@ -54,55 +70,55 @@ const styles = {
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    background: "#0f5fa8",
+    background: "linear-gradient(135deg, #0f5fa8, #1e3a8a)",
   },
 
   card: {
     background: "#ffffff",
     padding: "36px",
     borderRadius: "26px",
-    width: "520px",
+    width: "420px",
     maxWidth: "90%",
     textAlign: "center",
     boxShadow: "0 18px 45px rgba(0,0,0,0.18)",
   },
 
   logo: {
-    width: "90px",
+    width: "85px",
     display: "block",
-    margin: "0 auto 22px",
+    margin: "0 auto 18px",
   },
 
   title: {
-  fontSize: "15px",
-  fontWeight: "600",
-  color: "#1e3a8a",
-  marginBottom: "15px",
-  textAlign: "center",
-  letterSpacing: "1px",
-},
+    fontSize: "14px",
+    fontWeight: "700",
+    color: "#1e3a8a",
+    marginBottom: "18px",
+    textAlign: "center",
+    letterSpacing: "1px",
+  },
 
   input: {
     width: "100%",
     boxSizing: "border-box",
-    padding: "15px 18px",
-    marginBottom: "14px",
-    borderRadius: "14px",
+    padding: "14px 16px",
+    marginBottom: "12px",
+    borderRadius: "12px",
     border: "1px solid #cbd5e1",
-    fontSize: "16px",
+    fontSize: "15px",
   },
 
   button: {
-    width: "160px",
-    padding: "12px",
+    width: "150px",
+    padding: "11px",
     backgroundColor: "#2563eb",
     color: "#fff",
     border: "none",
-    borderRadius: "14px",
+    borderRadius: "12px",
     cursor: "pointer",
     display: "block",
-    margin: "16px auto 0",
-    fontSize: "16px",
+    margin: "15px auto 0",
+    fontSize: "15px",
     fontWeight: "700",
   },
 };
