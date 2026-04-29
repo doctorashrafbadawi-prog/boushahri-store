@@ -112,10 +112,11 @@ function App() {
   }
 
   if (!user) {
-    return <Login onLogin={setUser} />;
-  }
-
-  return <OrderForm supabase={supabase} user={user} onLogout={logout} />;
+  return <Login onLogin={setUser} />;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+if (user.role === "admin") {
+  return <AdminDashboard supabase={supabase} user={user} onLogout={logout} />;
+}
+
+return <OrderForm supabase={supabase} user={user} onLogout={logout} />;
