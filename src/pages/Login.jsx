@@ -74,14 +74,13 @@ const styles = {
   },
 
   title: {
-    fontSize: "22px",
-    color: "#1e3a8a",
-    marginBottom: "26px",
-    textAlign: "center",
-    whiteSpace: "nowrap",
-    fontWeight: "700",
-    letterSpacing: "1px",
-  },
+  fontSize: "15px",
+  fontWeight: "600",
+  color: "#1e3a8a",
+  marginBottom: "15px",
+  textAlign: "center",
+  letterSpacing: "1px",
+},
 
   input: {
     width: "100%",
