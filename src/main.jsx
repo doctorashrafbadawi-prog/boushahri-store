@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 
 import OrderForm from "./pages/OrderForm";
+import AdminDashboard from "./pages/AdminDashboard";
 import "./style.css";
 
 const SUPABASE_URL =
@@ -112,11 +113,14 @@ function App() {
   }
 
   if (!user) {
-  return <Login onLogin={setUser} />;
+    return <Login onLogin={setUser} />;
+  }
+
+  if (user.role === "admin") {
+    return <AdminDashboard supabase={supabase} user={user} onLogout={logout} />;
+  }
+
+  return <OrderForm supabase={supabase} user={user} onLogout={logout} />;
 }
 
-if (user.role === "admin") {
-  return <AdminDashboard supabase={supabase} user={user} onLogout={logout} />;
-}
-
-return <OrderForm supabase={supabase} user={user} onLogout={logout} />;
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
