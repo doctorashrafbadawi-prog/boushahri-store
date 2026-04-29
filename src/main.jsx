@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 
 import OrderForm from "./pages/OrderForm";
-import AdminDashboard from "./pages/AdminDashboard";
 import "./style.css";
 
 const SUPABASE_URL =
@@ -27,7 +26,6 @@ function Login({ onLogin }) {
     const username = String(fd.get("username") || "").trim();
     const password = String(fd.get("password") || "").trim();
 
-    // Admin login ثابت لضمان دخولك دائمًا
     if (username === "BOUSHAHRI" && password === "BOUSHAHRI") {
       const adminUser = {
         id: "admin",
@@ -43,7 +41,6 @@ function Login({ onLogin }) {
       return;
     }
 
-    // Login للعيادات من Supabase
     const { data, error: dbError } = await supabase
       .from("users_app")
       .select("*")
@@ -58,7 +55,6 @@ function Login({ onLogin }) {
 
     if (data && data.length > 0) {
       const user = data[0];
-
       localStorage.setItem("boushahri_user", JSON.stringify(user));
       onLogin(user);
     } else {
@@ -80,19 +76,13 @@ function Login({ onLogin }) {
 
         <h1 className="loginTitle">BOUSHAHRI MEDICAL STORE</h1>
 
-        <input
-          className="loginInput"
-          name="username"
-          placeholder="Username"
-          autoComplete="username"
-        />
+        <input className="loginInput" name="username" placeholder="Username" />
 
         <input
           className="loginInput"
           name="password"
           type="password"
           placeholder="Password"
-          autoComplete="current-password"
         />
 
         <button className="loginButton" type="submit">
@@ -123,10 +113,6 @@ function App() {
 
   if (!user) {
     return <Login onLogin={setUser} />;
-  }
-
-  if (user.role === "admin") {
-    return <AdminDashboard supabase={supabase} user={user} onLogout={logout} />;
   }
 
   return <OrderForm supabase={supabase} user={user} onLogout={logout} />;
