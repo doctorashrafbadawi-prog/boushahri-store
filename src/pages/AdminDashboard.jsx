@@ -98,15 +98,20 @@ export default function AdminDashboard({ supabase, user, onLogout }) {
     setRequestItems(data || []);
   }
 
-  async function loadUsers() {
-    const { data, error } = await supabase
-      .from("users_app")
-      .select("*")
-      .order("username");
+ async function loadUsers() {
+  const { data, error } = await supabase
+    .from("users_app")
+    .select("id, username, role, clinic_name, doctor_name, active")
+    .order("username", { ascending: true });
 
-    if (error) return console.log("users error", error);
-    setUsers(data || []);
+  if (error) {
+    alert("Users load error: " + error.message);
+    console.log("users error", error);
+    return;
   }
+
+  setUsers(data || []);
+}
 
   async function loadSuppliers() {
     const { data, error } = await supabase
